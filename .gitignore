@@ -1,0 +1,7 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+wa-bridge/node_modules/
+wa-bridge/.wwebjs_auth/
+wa-bridge/.wwebjs_cache/

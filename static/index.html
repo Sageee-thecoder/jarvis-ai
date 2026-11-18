@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J.A.R.V.I.S.</title>
+<style>
+  :root {
+    --bg: #050b14;
+    --panel: rgba(10, 25, 45, 0.72);
+    --line: rgba(59, 232, 255, 0.25);
+    --cyan: #3be8ff;
+    --cyan-dim: #1b7f94;
+    --amber: #ffb340;
+    --red: #ff4d6d;
+    --green: #4dffb0;
+    --text: #cfeaf5;
+    --muted: #6f93a6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 50% 40%, #0a1f36 0%, var(--bg) 70%);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(59,232,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,232,255,0.04) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .mono { font-family: Consolas, "SF Mono", Menlo, monospace; }
+
+  /* Boot overlay */
+  #boot {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    background: radial-gradient(ellipse at center, #0a1f36 0%, #03070d 80%);
+    text-align: center; padding: 24px;
+  }
+  #boot h1 { font-weight: 200; letter-spacing: 0.5em; font-size: clamp(28px, 6vw, 54px); color: var(--cyan); text-shadow: 0 0 24px rgba(59,232,255,0.6); }
+  #boot p { color: var(--muted); max-width: 460px; line-height: 1.6; font-size: 14px; }
+  .btn {
+    background: transparent; color: var(--cyan);
+    border: 1px solid var(--cyan); border-radius: 4px;
+    padding: 12px 26px; font-size: 13px; letter-spacing: 0.25em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.2s; font-family: inherit;
+  }
+  .btn:hover { background: rgba(59,232,255,0.14); box-shadow: 0 0 18px rgba(59,232,255,0.4); }
+  .btn.small { padding: 7px 12px; font-size: 11px; letter-spacing: 0.15em; }
+  .btn.on { background: rgba(59,232,255,0.2); box-shadow: 0 0 12px rgba(59,232,255,0.35); }
+  .btn.warn { color: var(--amber); border-color: var(--amber); }
+  .btn.warn:hover { background: rgba(255,179,64,0.14); box-shadow: 0 0 18px rgba(255,179,64,0.4); }
+
+  /* Layout */
+  #app {
+    position: relative; z-index: 1;
+    height: 100%;
+    display: grid;
+    grid-template-columns: 300px 1fr 360px;
+    grid-template-rows: auto 1fr auto;
+    gap: 16px; padding: 16px;
+  }
+  header {
+    grid-column: 1 / -1;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
+    border-bottom: 1px solid var(--line); padding-bottom: 10px;
+  }
+  header h2 { font-weight: 300; letter-spacing: 0.4em; font-size: 18px; color: var(--cyan); }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    font-size: 11px; letter-spacing: 0.1em; padding: 4px 10px; border-radius: 3px;
+    border: 1px solid var(--cyan-dim); color: var(--muted); text-transform: uppercase;
+  }
+  .chip.ok { color: var(--green); border-color: rgba(77,255,176,0.5); }
+  .chip.bad { color: var(--red); border-color: rgba(255,77,109,0.5); }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px; padding: 14px;
+    backdrop-filter: blur(6px);
+  }
+  .panel h3 { font-size: 11px; letter-spacing: 0.3em; color: var(--cyan-dim); margin-bottom: 10px; text-transform: uppercase; font-weight: 600; }
+
+  #left { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+  #videoWrap { position: relative; aspect-ratio: 4 / 3; background: #02060b; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  #video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: none; }
+  #videoOff { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; letter-spacing: 0.2em; }
+  #videoWrap.live #video { display: block; }
+  #videoWrap.live #videoOff { display: none; }
+  #videoWrap.live::after {
+    content: ""; position: absolute; left: 0; right: 0; height: 2px; top: 0;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    animation: scan 3.5s linear infinite; opacity: 0.7;
+  }
+  @keyframes scan { from { top: 0; } to { top: 100%; } }
+
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  label.opt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); margin: 6px 0; cursor: pointer; }
+  label.opt input { accent-color: var(--cyan); }
+  select, input[type="text"], input[type="range"] {
+    width: 100%; background: rgba(2,8,16,0.8); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px; padding: 7px 8px; font-size: 13px; font-family: inherit;
+  }
+  input[type="range"] { padding: 0; accent-color: var(--cyan); }
+  .field { margin-top: 8px; }
+  .field span { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+  #wxMain { font-size: 30px; font-weight: 300; color: #e8f9ff; }
+  #wxDesc { font-size: 13px; margin-top: 2px; text-transform: capitalize; }
+  #wxMeta { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .wx-forecast { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+  .wx-cell { text-align: center; font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 5px 2px; background: rgba(2,8,16,0.5); }
+  .wx-cell .t { color: var(--muted); display: block; }
+  .wx-cell .e { font-size: 16px; display: block; margin: 2px 0; }
+  .wx-cell .p { color: var(--cyan-dim); display: block; }
+  #wxUpdated { font-size: 10px; color: var(--muted); margin-top: 8px; letter-spacing: 0.1em; }
+
+  .light-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .light-row:last-child { border-bottom: 0; }
+  .light-name { font-size: 13px; }
+  .light-name small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .light-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--muted); }
+  .light-dot.on { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .light-dot.bad { background: var(--red); }
+  .light-row input[type="range"] { grid-column: 1 / -1; }
+  .light-empty { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  #center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 0; }
+  #orbWrap { width: 100%; display: flex; justify-content: center; }
+  #stateLabel { letter-spacing: 0.6em; font-size: 13px; color: var(--cyan); text-transform: uppercase; }
+  #heard { min-height: 22px; color: var(--muted); font-size: 15px; text-align: center; max-width: 600px; font-style: italic; }
+  #subtitle { min-height: 52px; font-size: 18px; text-align: center; max-width: 640px; line-height: 1.5; color: #e8f9ff; text-shadow: 0 0 12px rgba(59,232,255,0.35); }
+
+  #right { display: flex; flex-direction: column; min-height: 0; }
+  #log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+  .msg { font-size: 13.5px; line-height: 1.5; padding: 8px 10px; border-radius: 4px; border-left: 2px solid var(--cyan-dim); background: rgba(5,15,28,0.6); }
+  .msg .who { display: block; font-size: 10px; letter-spacing: 0.25em; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; }
+  .msg.you { border-left-color: var(--text); }
+  .msg.jarvis { border-left-color: var(--cyan); }
+  .msg.action { border-left-color: var(--green); color: var(--green); }
+  .msg.system { border-left-color: var(--muted); color: var(--muted); }
+  .msg.error { border-left-color: var(--red); color: var(--red); }
+
+  footer { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; }
+  footer input[type="text"] { flex: 1; padding: 11px 12px; font-size: 14px; }
+
+  @media (max-width: 1000px) {
+    body { overflow-y: auto; }
+    #app { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; min-height: 100%; }
+    #right { min-height: 320px; }
+    #log { max-height: 320px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="boot">
+  <h1>J.A.R.V.I.S.</h1>
+  <p>Click to initialize. Your browser will ask for microphone access (and camera access if you switch the camera on). Works best in Google Chrome or Microsoft Edge.</p>
+  <button class="btn" id="bootBtn">Initialize</button>
+</div>
+
+<div id="app">
+  <header>
+    <h2 class="mono">J.A.R.V.I.S.</h2>
+    <div class="chips mono" id="chips">
+      <span class="chip" id="chipAi">AI</span>
+      <span class="chip" id="chipEmail">EMAIL</span>
+      <span class="chip" id="chipWa">WHATSAPP</span>
+      <span class="chip" id="chipTg">TELEGRAM</span>
+      <span class="chip" id="chipInbox">INBOX</span>
+      <span class="chip" id="chipLights">LIGHTS</span>
+    </div>
+  </header>
+
+  <aside id="left">
+    <div class="panel">
+      <h3>Visual feed</h3>
+      <div id="videoWrap">
+        <video id="video" autoplay playsinline muted></video>
+        <div id="videoOff" class="mono">CAMERA OFFLINE</div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn small" id="camBtn">Camera</button>
+        <button class="btn small" id="micBtn">Mic</button>
+      </div>
+    </div>
+
+    <div class="panel" id="weatherPanel">
+      <h3>Weather</h3>
+      <div id="wxMain" class="mono">--</div>
+      <div id="wxDesc">Waiting for data...</div>
+      <div id="wxMeta" class="mono"></div>
+      <div id="wxForecast" class="wx-forecast"></div>
+      <div id="wxUpdated" class="mono"></div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn small" id="wxRefresh">Refresh</button>
+      </div>
+    </div>
+
+    <div class="panel" id="lightsPanel">
+      <h3>Lights</h3>
+      <div id="lightsList"></div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn small" id="lightsAllOn">All on</button>
+        <button class="btn small warn" id="lightsAllOff">All off</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Behaviour</h3>
+      <label class="opt"><input type="checkbox" id="wakeToggle" checked> Wake word "Jarvis"</label>
+      <label class="opt"><input type="checkbox" id="alwaysSee"> Always send camera frame</label>
+      <label class="opt"><input type="checkbox" id="proactive" checked> Greet me when I return</label>
+      <label class="opt"><input type="checkbox" id="mute"> Mute voice</label>
+      <label class="opt"><input type="checkbox" id="wxAlerts" checked> Speak weather alerts</label>
+      <label class="opt"><input type="checkbox" id="announce" checked> Announce new mail &amp; WhatsApp</label>
+
+      <div class="field">
+        <span>Speech language</span>
+        <select id="lang">
+          <option value="en-US">English (US)</option>
+          <option value="en-GB">English (UK)</option>
+          <option value="tr-TR">Türkçe</option>
+          <option value="de-DE">Deutsch</option>
+          <option value="fr-FR">Français</option>
+          <option value="es-ES">Español</option>
+        </select>
+      </div>
+      <div class="field">
+        <span>Voice</span>
+        <select id="voice"></select>
+      </div>
+      <div class="field">
+        <span>Speech rate</span>
+        <input type="range" id="rate" min="0.7" max="1.4" step="0.05" value="1">
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn small warn" id="resetBtn">Reset memory</button>
+      </div>
+    </div>
+  </aside>
+
+  <main id="center">
+    <div id="orbWrap"><canvas id="orb"></canvas></div>
+    <div id="stateLabel" class="mono">OFFLINE</div>
+    <div id="heard"></div>
+    <div id="subtitle"></div>
+  </main>
+
+  <section id="right" class="panel">
+    <h3>Transcript</h3>
+    <div id="log"></div>
+  </section>
+
+  <footer>
+    <input type="text" id="textInput" placeholder="Type a command, or just say &quot;Jarvis...&quot;" autocomplete="off">
+    <button class="btn small" id="sendBtn">Send</button>
+  </footer>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ------------------------------------------------------------------
+  // Helpers + element references
+  // ------------------------------------------------------------------
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    boot: $('boot'), bootBtn: $('bootBtn'),
+    video: $('video'), videoWrap: $('videoWrap'),
+    camBtn: $('camBtn'), micBtn: $('micBtn'),
+    wakeToggle: $('wakeToggle'), alwaysSee: $('alwaysSee'), proactive: $('proactive'), mute: $('mute'),
+    lang: $('lang'), voice: $('voice'), rate: $('rate'), resetBtn: $('resetBtn'),
+    stateLabel: $('stateLabel'), heard: $('heard'), subtitle: $('subtitle'),
+    log: $('log'), textInput: $('textInput'), sendBtn: $('sendBtn'),
+    chipAi: $('chipAi'), chipEmail: $('chipEmail'), chipWa: $('chipWa'), chipTg: $('chipTg'),
+    orb: $('orb'),
+    wxAlerts: $('wxAlerts'), announce: $('announce'), chipInbox: $('chipInbox'), chipLights: $('chipLights'),
+    lightsList: $('lightsList'), lightsAllOn: $('lightsAllOn'), lightsAllOff: $('lightsAllOff'), wxMain: $('wxMain'), wxDesc: $('wxDesc'), wxMeta: $('wxMeta'),
+    wxForecast: $('wxForecast'), wxUpdated: $('wxUpdated'), wxRefresh: $('wxRefresh')
+  };
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const VISION_RE = /\b(see|look|looking|watch|wearing|holding|camera|picture|photo|face|room|behind me|in front of me|what am i|who am i|how do i look)\b/i;
+  const PRESENCE_AWAY_MS = 10 * 60 * 1000;
+  const AWAKE_WINDOW_MS = 25 * 1000;
+
+  let state = 'idle';
+  let active = false;
+  let busy = false;
+  let speaking = false;
+  let wantListening = false;
+  let recRunning = false;
+  let rec = null;
+  let restartTimer = null;
+  let awakeUntil = 0;
+  let camOn = false;
+  let camStream = null;
+  let lastMotion = Date.now();
+  let prevFrame = null;
+  let presenceTimer = null;
+  let polling = false;
+  let voices = [];
+  const pendingSpeech = [];
+
+  // ------------------------------------------------------------------
+  // Settings persistence
+  // ------------------------------------------------------------------
+  function loadSettings() {
+    try {
+      const s = JSON.parse(localStorage.getItem('jarvis-settings') || '{}');
+      if (s.lang) el.lang.value = s.lang;
+      if (s.rate) el.rate.value = s.rate;
+      if (typeof s.wake === 'boolean') el.wakeToggle.checked = s.wake;
+      if (typeof s.proactive === 'boolean') el.proactive.checked = s.proactive;
+      if (typeof s.mute === 'boolean') el.mute.checked = s.mute;
+      if (typeof s.wxAlerts === 'boolean') el.wxAlerts.checked = s.wxAlerts;
+      if (typeof s.announce === 'boolean') el.announce.checked = s.announce;
+      if (typeof s.alwaysSee === 'boolean') el.alwaysSee.checked = s.alwaysSee;
+      el.voice.dataset.saved = s.voice || '';
+    } catch (e) { /* storage unavailable */ }
+  }
+  function saveSettings() {
+    try {
+      localStorage.setItem('jarvis-settings', JSON.stringify({
+        lang: el.lang.value, rate: el.rate.value, voice: el.voice.value,
+        wake: el.wakeToggle.checked, proactive: el.proactive.checked,
+        mute: el.mute.checked, alwaysSee: el.alwaysSee.checked, wxAlerts: el.wxAlerts.checked, announce: el.announce.checked
+      }));
+    } catch (e) { /* storage unavailable */ }
+  }
+
+  // ------------------------------------------------------------------
+  // UI state + log
+  // ------------------------------------------------------------------
+  function setState(s) {
+    state = s;
+    const labels = { idle: 'STANDBY', listening: 'LISTENING', thinking: 'PROCESSING', speaking: 'SPEAKING', error: 'FAULT' };
+    el.stateLabel.textContent = labels[s] || s.toUpperCase();
+  }
+
+  function addLog(kind, text) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + kind;
+    const who = document.createElement('span');
+    who.className = 'who mono';
+    who.textContent = kind === 'you' ? 'You' : kind === 'jarvis' ? 'Jarvis' : kind;
+    const body = document.createElement('span');
+    body.textContent = text;
+    div.appendChild(who);
+    div.appendChild(body);
+    el.log.appendChild(div);
+    el.log.scrollTop = el.log.scrollHeight;
+    if (kind === 'jarvis') el.subtitle.textContent = text;
+  }
+
+  function setChip(chip, ok) {
+    chip.classList.remove('ok', 'bad');
+    chip.classList.add(ok ? 'ok' : 'bad');
+  }
+
+  async function loadStatus() {
+    try {
+      const r = await fetch('/api/status');
+      const s = await r.json();
+      setChip(el.chipAi, s.ai);
+      setChip(el.chipEmail, s.email);
+      setChip(el.chipWa, s.whatsapp);
+      setChip(el.chipTg, s.telegram);
+      setChip(el.chipInbox, s.inbox);
+      setChip(el.chipLights, s.lights);
+      if (!s.ai) {
+        addLog('error', 'GEMINI_API_KEY is missing. Add it to your .env file and restart the server.');
+      } else {
+        fetch('/api/selftest').then((r) => r.json()).then((t) => {
+          if (t.ok) addLog('system', 'AI link verified (' + t.model + ', ' + t.latency_ms + ' ms round trip).');
+          else addLog('error', 'AI check failed: ' + t.error);
+        }).catch(() => addLog('error', 'AI self-test could not run.'));
+      }
+      if (s.whatsapp_state === 'needs_qr') addLog('system', 'WhatsApp bridge is waiting for a QR scan. Look at the bridge terminal window.');
+      if (s.whatsapp_state === 'offline') addLog('system', 'WhatsApp bridge is not running. Start it with: cd wa-bridge && npm start');
+      if (s.whatsapp_state === 'port_conflict' || s.whatsapp_state === 'wrong_token') addLog('error', 'WhatsApp bridge: ' + (s.whatsapp_detail || s.whatsapp_state));
+    } catch (e) {
+      addLog('error', 'Cannot reach the local server.');
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Text to speech
+  // ------------------------------------------------------------------
+  function loadVoices() {
+    voices = speechSynthesis.getVoices();
+    const current = el.voice.value || el.voice.dataset.saved || '';
+    el.voice.innerHTML = '';
+    const auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = 'Automatic';
+    el.voice.appendChild(auto);
+    voices.forEach((v) => {
+      const o = document.createElement('option');
+      o.value = v.name;
+      o.textContent = v.name + ' (' + v.lang + ')';
+      el.voice.appendChild(o);
+    });
+    el.voice.value = current;
+  }
+
+  function pickVoice() {
+    if (el.voice.value) {
+      const chosen = voices.find((v) => v.name === el.voice.value);
+      if (chosen) return chosen;
+    }
+    const lang = el.lang.value;
+    const prefix = lang.split('-')[0];
+    const sameLang = voices.filter((v) => v.lang === lang || v.lang.startsWith(prefix));
+    const local = sameLang.filter((v) => v.localService);
+    const pool = local.length ? local : sameLang;
+    const male = pool.find((v) => /male|daniel|david|george|alex|google uk english male/i.test(v.name));
+    return male || pool[0] || null;
+  }
+
+  function speak(text) {
+    return new Promise((resolve) => {
+      if (!('speechSynthesis' in window) || el.mute.checked || !text) { resolve(); return; }
+      speaking = true;
+      stopRec();
+      setState('speaking');
+      const clean = text.replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim();
+      const chunks = (clean.match(/[^.!?]+[.!?]*\s*/g) || [clean]).map((c) => c.trim()).filter(Boolean);
+      if (!chunks.length) { speaking = false; resolve(); return; }
+      speechSynthesis.cancel();
+      const voice = pickVoice();
+      chunks.forEach((chunk, i) => {
+        const u = new SpeechSynthesisUtterance(chunk);
+        if (voice) { u.voice = voice; u.lang = voice.lang; } else { u.lang = el.lang.value; }
+        u.rate = parseFloat(el.rate.value) || 1;
+        u.pitch = 0.95;
+        if (i === chunks.length - 1) {
+          const done = () => { speaking = false; resolve(); };
+          u.onend = done;
+          u.onerror = done;
+        }
+        speechSynthesis.speak(u);
+      });
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Speech recognition (microphone)
+  // ------------------------------------------------------------------
+  function startRec() {
+    if (!SR || !wantListening || speaking || busy || recRunning || !active) return;
+    rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = el.lang.value;
+
+    rec.onstart = () => {
+      recRunning = true;
+      if (!busy && !speaking) setState('listening');
+    };
+    rec.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const result = e.results[i];
+        if (result.isFinal) {
+          el.heard.textContent = '';
+          handleHeard(result[0].transcript.trim());
+        } else {
+          interim += result[0].transcript;
+        }
+      }
+      if (interim) el.heard.textContent = interim;
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        wantListening = false;
+        el.micBtn.classList.remove('on');
+        addLog('error', 'Microphone access was blocked. Allow it in the browser address bar, then press Mic.');
+      }
+    };
+    rec.onend = () => {
+      recRunning = false;
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(startRec, 300);
+    };
+    try { rec.start(); } catch (e) { recRunning = false; }
+  }
+
+  function stopRec() {
+    clearTimeout(restartTimer);
+    if (rec) {
+      try { rec.onend = null; rec.abort(); } catch (e) { /* already stopped */ }
+    }
+    recRunning = false;
+  }
+
+  function resume() {
+    busy = false;
+    speaking = false;
+    if (wantListening && active) {
+      setState('listening');
+      startRec();
+    } else {
+      setState('idle');
+    }
+  }
+
+  function handleHeard(text) {
+    if (!text || busy || speaking) return;
+    const now = Date.now();
+    let cmd = null;
+
+    if (!el.wakeToggle.checked) {
+      cmd = text;
+    } else {
+      const idx = text.toLowerCase().indexOf('jarvis');
+      if (idx >= 0) {
+        const before = text.slice(0, idx).replace(/\bhey\b/i, '').trim();
+        const after = text.slice(idx + 6).replace(/^[,.!?\s]+/, '').trim();
+        cmd = after || before;
+        awakeUntil = now + AWAKE_WINDOW_MS;
+        if (!cmd) { say('Yes?'); return; }
+      } else if (now < awakeUntil) {
+        cmd = text;
+      }
+    }
+    if (cmd) ask(cmd);
+  }
+
+  async function say(text) {
+    addLog('jarvis', text);
+    await speak(text);
+    resume();
+  }
+
+  // ------------------------------------------------------------------
+  // Talking to the backend
+  // ------------------------------------------------------------------
+  async function ask(text, opts) {
+    opts = opts || {};
+    if (busy || speaking) return;
+    busy = true;
+    stopRec();
+    setState('thinking');
+    if (!opts.silent) addLog('you', text);
+
+    let image = null;
+    if (camOn && (opts.forceImage || el.alwaysSee.checked || VISION_RE.test(text))) {
+      image = captureFrame();
+    }
+    awakeUntil = Date.now() + AWAKE_WINDOW_MS;
+
+    let reply = '';
+    let buffer = '';
+    let pending = 0;
+    let streamDone = false;
+    let failed = null;
+    let finish = null;
+    const finished = new Promise((resolve) => { finish = resolve; });
+    const checkFinish = () => { if (streamDone && pending === 0) finish(); };
+
+    // Speak each sentence the moment it arrives instead of waiting for the whole reply.
+    const enqueue = (sentence) => {
+      const clean = sentence.replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim();
+      if (!clean || el.mute.checked || !('speechSynthesis' in window)) return;
+      const u = new SpeechSynthesisUtterance(clean);
+      const voice = pickVoice();
+      if (voice) { u.voice = voice; u.lang = voice.lang; } else { u.lang = el.lang.value; }
+      u.rate = parseFloat(el.rate.value) || 1;
+      u.pitch = 0.95;
+      pending++;
+      const done = () => { pending--; checkFinish(); };
+      u.onend = done;
+      u.onerror = done;
+      if (!speaking) { speaking = true; setState('speaking'); }
+      speechSynthesis.speak(u);
+    };
+
+    const SENTENCE_RE = /^([\s\S]*?[.!?]+["')\]]*)\s+/;
+    const drain = (final) => {
+      let m = buffer.match(SENTENCE_RE);
+      while (m) {
+        enqueue(m[1]);
+        buffer = buffer.slice(m[0].length);
+        m = buffer.match(SENTENCE_RE);
+      }
+      if (final && buffer.trim()) { enqueue(buffer); buffer = ''; }
+    };
+
+    const onEvent = (ev) => {
+      if (ev.type === 'text') {
+        reply += ev.text;
+        buffer += ev.text;
+        el.subtitle.textContent = reply;
+        drain(false);
+      } else if (ev.type === 'action') {
+        addLog('action', ev.text);
+        if (/light/i.test(ev.text)) setTimeout(loadLights, 1200);
+      } else if (ev.type === 'error') {
+        failed = ev.text;
+      }
+    };
+
+    try {
+      const resp = await fetch('/api/chat-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, image: image })
+      });
+      if (!resp.ok || !resp.body) {
+        let detail = 'HTTP ' + resp.status;
+        try { const d = await resp.json(); if (d.error) detail = d.error; } catch (err) { /* not json */ }
+        throw new Error(detail);
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = '';
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        acc += decoder.decode(chunk.value, { stream: true });
+        let nl = acc.indexOf('\n');
+        while (nl >= 0) {
+          const line = acc.slice(0, nl).trim();
+          acc = acc.slice(nl + 1);
+          if (line) onEvent(JSON.parse(line));
+          nl = acc.indexOf('\n');
+        }
+      }
+      if (failed) throw new Error(failed);
+    } catch (e) {
+      try { speechSynthesis.cancel(); } catch (err) { /* ignore */ }
+      addLog('error', e.message);
+      setState('error');
+      busy = false;
+      speaking = false;
+      setTimeout(resume, 1500);
+      return;
+    }
+
+    drain(true);
+    addLog('jarvis', reply.trim());
+    streamDone = true;
+    checkFinish();
+    setTimeout(finish, 60000); // safety net if the browser voice stalls
+    await finished;
+    awakeUntil = Date.now() + AWAKE_WINDOW_MS;
+    resume();
+  }
+
+  async function pollEvents() {
+    if (!active || polling) return;
+    polling = true;
+    try {
+      const r = await fetch('/api/events');
+      const d = await r.json();
+      (d.events || []).forEach((ev) => {
+        if (ev.kind === 'reminder') {
+          addLog('action', ev.text);
+          pendingSpeech.push(ev.text);
+        } else if (ev.kind === 'mail' || ev.kind === 'wa') {
+          addLog('action', ev.text);
+          if (el.announce.checked) pendingSpeech.push(ev.text);
+        } else if (ev.kind === 'weather') {
+          addLog('action', ev.text);
+          loadWeather(false);
+          if (el.wxAlerts.checked) pendingSpeech.push(ev.text);
+        } else {
+          addLog(ev.kind === 'error' ? 'error' : 'system', ev.text);
+        }
+      });
+    } catch (e) { /* server restarting */ }
+    if (!busy && !speaking && pendingSpeech.length) {
+      const t = pendingSpeech.shift();
+      await speak(t);
+      resume();
+    }
+    polling = false;
+  }
+
+  // ------------------------------------------------------------------
+  // Weather panel
+  // ------------------------------------------------------------------
+  function wxEmoji(group, icon) {
+    const night = !!icon && icon.slice(-1) === 'n';
+    const map = {
+      Clear: night ? '\u{1F319}' : '\u2600\uFE0F', Clouds: '\u2601\uFE0F', Rain: '\u{1F327}\uFE0F',
+      Drizzle: '\u{1F326}\uFE0F', Thunderstorm: '\u26C8\uFE0F', Snow: '\u2744\uFE0F',
+      Mist: '\u{1F32B}\uFE0F', Fog: '\u{1F32B}\uFE0F', Haze: '\u{1F32B}\uFE0F', Smoke: '\u{1F32B}\uFE0F', Dust: '\u{1F32B}\uFE0F'
+    };
+    return map[group] || '\u{1F321}\uFE0F';
+  }
+
+  function renderWeather(d) {
+    el.wxForecast.innerHTML = '';
+    if (!d || !d.ok || !d.current) {
+      el.wxMain.textContent = '--';
+      el.wxDesc.textContent = (d && d.error) ? d.error : 'Weather unavailable';
+      el.wxMeta.textContent = '';
+      el.wxUpdated.textContent = '';
+      return;
+    }
+    const c = d.current;
+    const u = d.units;
+    el.wxMain.textContent = wxEmoji(c.group, c.icon) + ' ' + Math.round(c.temp) + u.temp;
+    el.wxDesc.textContent = c.city + (c.country ? ', ' + c.country : '') + ' - ' + c.desc;
+    el.wxMeta.textContent = 'Feels ' + Math.round(c.feels) + u.temp + ' | Humidity ' + c.humidity +
+      '% | Wind ' + c.wind_disp + ' ' + u.wind;
+    (d.forecast || []).slice(0, 6).forEach((f) => {
+      const cell = document.createElement('div');
+      cell.className = 'wx-cell mono';
+      const t = document.createElement('span');
+      t.className = 't';
+      t.textContent = f.time;
+      const e = document.createElement('span');
+      e.className = 'e';
+      e.textContent = wxEmoji(f.group, f.icon);
+      const temp = document.createElement('span');
+      temp.textContent = Math.round(f.temp) + u.temp;
+      const p = document.createElement('span');
+      p.className = 'p';
+      p.textContent = f.pop >= 0.2 ? Math.round(f.pop * 100) + '%' : '\u00A0';
+      cell.appendChild(t);
+      cell.appendChild(e);
+      cell.appendChild(temp);
+      cell.appendChild(p);
+      el.wxForecast.appendChild(cell);
+    });
+    const when = new Date(d.updated * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    el.wxUpdated.textContent = 'UPDATED ' + when + (d.error ? ' (last refresh failed)' : '');
+  }
+
+  async function loadWeather(force) {
+    try {
+      const r = await fetch('/api/weather' + (force ? '?refresh=1' : ''));
+      renderWeather(await r.json());
+    } catch (e) { /* server restarting */ }
+  }
+
+  // ------------------------------------------------------------------
+  // Lights panel
+  // ------------------------------------------------------------------
+  async function lightsControl(payload) {
+    try {
+      const r = await fetch('/api/lights/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const d = await r.json();
+      if (!d.ok) addLog('error', 'Lights: ' + d.text);
+    } catch (e) {
+      addLog('error', 'Lights: ' + e.message);
+    }
+    loadLights();
+  }
+
+  function renderLights(d) {
+    el.lightsList.innerHTML = '';
+    const lights = (d && d.lights) || [];
+    if (!d || !d.configured || (!lights.length && d.error)) {
+      const msg = document.createElement('div');
+      msg.className = 'light-empty';
+      msg.textContent = (d && d.error) ? d.error : 'No lights configured. Add WIZ_LIGHTS to .env.';
+      el.lightsList.appendChild(msg);
+      return;
+    }
+    lights.forEach((light) => {
+      const row = document.createElement('div');
+      row.className = 'light-row';
+
+      const name = document.createElement('div');
+      name.className = 'light-name';
+      const dot = document.createElement('span');
+      dot.className = 'light-dot' + (!light.reachable ? ' bad' : light.on ? ' on' : '');
+      const label = document.createElement('span');
+      label.textContent = light.name;
+      const sub = document.createElement('small');
+      if (!light.reachable) {
+        sub.textContent = 'unreachable';
+      } else if (!light.on) {
+        sub.textContent = 'off';
+      } else {
+        sub.textContent = (light.brightness != null ? light.brightness + '%' : 'on') + (light.scene ? ' \u00B7 ' + light.scene : '');
+      }
+      if (light.reachable && light.bulbs_total > 1 && light.bulbs_reachable < light.bulbs_total) {
+        sub.textContent += ' \u00B7 ' + light.bulbs_reachable + '/' + light.bulbs_total + ' bulbs';
+      }
+      name.appendChild(dot);
+      name.appendChild(label);
+      name.appendChild(sub);
+
+      const btn = document.createElement('button');
+      btn.className = 'btn small';
+      btn.textContent = light.on ? 'Off' : 'On';
+      btn.disabled = !light.reachable;
+      btn.addEventListener('click', () => lightsControl({ target: light.name, action: 'toggle' }));
+
+      const range = document.createElement('input');
+      range.type = 'range';
+      range.min = '10';
+      range.max = '100';
+      range.step = '5';
+      range.value = String(light.brightness != null ? Math.max(10, light.brightness) : 100);
+      range.disabled = !light.reachable;
+      range.addEventListener('change', () => {
+        lightsControl({ target: light.name, action: 'on', brightness_percent: parseInt(range.value, 10) });
+      });
+
+      row.appendChild(name);
+      row.appendChild(btn);
+      row.appendChild(range);
+      el.lightsList.appendChild(row);
+    });
+  }
+
+  async function loadLights() {
+    try {
+      const r = await fetch('/api/lights');
+      renderLights(await r.json());
+    } catch (e) { /* server restarting */ }
+  }
+
+  // ------------------------------------------------------------------
+  // Camera + presence detection
+  // ------------------------------------------------------------------
+  const frameCanvas = document.createElement('canvas');
+  const smallCanvas = document.createElement('canvas');
+  smallCanvas.width = 32;
+  smallCanvas.height = 24;
+  const smallCtx = smallCanvas.getContext('2d', { willReadFrequently: true });
+
+  function captureFrame() {
+    if (!el.video.videoWidth) return null;
+    const w = 640;
+    const h = Math.round(w * el.video.videoHeight / el.video.videoWidth);
+    frameCanvas.width = w;
+    frameCanvas.height = h;
+    frameCanvas.getContext('2d').drawImage(el.video, 0, 0, w, h);
+    return frameCanvas.toDataURL('image/jpeg', 0.75).split(',')[1];
+  }
+
+  function presenceTick() {
+    if (!camOn || !el.video.videoWidth) return;
+    smallCtx.drawImage(el.video, 0, 0, 32, 24);
+    const px = smallCtx.getImageData(0, 0, 32, 24).data;
+    const cur = new Uint8Array(32 * 24);
+    for (let i = 0; i < cur.length; i++) {
+      cur[i] = (px[i * 4] + px[i * 4 + 1] + px[i * 4 + 2]) / 3;
+    }
+    if (prevFrame) {
+      let sum = 0;
+      for (let i = 0; i < cur.length; i++) sum += Math.abs(cur[i] - prevFrame[i]);
+      const avg = sum / cur.length;
+      if (avg > 6) {
+        const now = Date.now();
+        const away = now - lastMotion;
+        lastMotion = now;
+        if (el.proactive.checked && active && away > PRESENCE_AWAY_MS && !busy && !speaking) {
+          const mins = Math.round(away / 60000);
+          addLog('system', 'Presence detected after ' + mins + ' minutes.');
+          ask('[event] The owner has just appeared at the computer after being away for about ' + mins +
+              ' minutes. Greet them briefly and naturally. Mention something useful only if you have something.',
+              { silent: true, forceImage: true });
+        }
+      }
+    }
+    prevFrame = cur;
+  }
+
+  async function toggleCamera() {
+    if (camOn) {
+      camStream.getTracks().forEach((t) => t.stop());
+      camStream = null;
+      camOn = false;
+      prevFrame = null;
+      clearInterval(presenceTimer);
+      el.video.srcObject = null;
+      el.videoWrap.classList.remove('live');
+      el.camBtn.classList.remove('on');
+      return;
+    }
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      el.video.srcObject = camStream;
+      await el.video.play();
+      camOn = true;
+      lastMotion = Date.now();
+      el.videoWrap.classList.add('live');
+      el.camBtn.classList.add('on');
+      presenceTimer = setInterval(presenceTick, 1500);
+      addLog('system', 'Camera online. Frames are only sent to the AI when you ask something visual (or if "Always send camera frame" is on).');
+    } catch (e) {
+      addLog('error', 'Camera unavailable: ' + e.message);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Orb animation
+  // ------------------------------------------------------------------
+  const ctx = el.orb.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  let t = 0;
+
+  function resizeOrb() {
+    const size = Math.max(220, Math.min(el.orb.parentElement.clientWidth, window.innerHeight * 0.5, 460));
+    el.orb.width = size * dpr;
+    el.orb.height = size * dpr;
+    el.orb.style.width = size + 'px';
+    el.orb.style.height = size + 'px';
+  }
+
+  function drawOrb() {
+    t += 0.016;
+    const w = el.orb.width;
+    const h = el.orb.height;
+    const cx = w / 2;
+    const cy = h / 2;
+    const R = w * 0.3;
+    ctx.clearRect(0, 0, w, h);
+
+    const palette = {
+      idle: [59, 232, 255], listening: [59, 232, 255], thinking: [255, 179, 64],
+      speaking: [120, 255, 230], error: [255, 77, 109]
+    };
+    const col = palette[state] || palette.idle;
+    const amp = state === 'speaking'
+      ? 0.06 + 0.04 * Math.sin(t * 14) + 0.03 * Math.sin(t * 23)
+      : state === 'listening' ? 0.03 * Math.sin(t * 3)
+      : state === 'thinking' ? 0.02 * Math.sin(t * 8)
+      : 0.01 * Math.sin(t * 1.5);
+    const alpha = state === 'idle' ? 0.5 : 1;
+
+    const glowR = R * (1.35 + amp);
+    const g = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, glowR);
+    g.addColorStop(0, 'rgba(' + col + ',' + (0.55 * alpha) + ')');
+    g.addColorStop(0.6, 'rgba(' + col + ',' + (0.12 * alpha) + ')');
+    g.addColorStop(1, 'rgba(' + col + ',0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineWidth = 2 * dpr;
+    for (let i = 0; i < 4; i++) {
+      const r = R * (0.55 + i * 0.18) * (1 + amp * (1 + i * 0.3));
+      const dir = i % 2 ? -1 : 1;
+      const speed = dir * (state === 'thinking' ? 2.2 : 0.5) * (1 + i * 0.3);
+      const start = t * speed;
+      const len = Math.PI * (1.2 - i * 0.15);
+      ctx.strokeStyle = 'rgba(' + col + ',' + ((0.85 - i * 0.15) * alpha) + ')';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, start, start + len);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, start + Math.PI, start + Math.PI + len * 0.6);
+      ctx.stroke();
+    }
+
+    ctx.lineWidth = 1 * dpr;
+    ctx.strokeStyle = 'rgba(' + col + ',' + (0.5 * alpha) + ')';
+    const tickR1 = R * 1.18;
+    const tickR2 = R * 1.26;
+    for (let i = 0; i < 72; i++) {
+      const a = (i / 72) * Math.PI * 2 + t * 0.12;
+      const long = i % 6 === 0;
+      const r2 = long ? tickR2 + R * 0.05 : tickR2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * tickR1, cy + Math.sin(a) * tickR1);
+      ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = 'rgba(' + col + ',' + (0.9 * alpha) + ')';
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * (0.14 + amp * 0.8), 0, Math.PI * 2);
+    ctx.fill();
+
+    requestAnimationFrame(drawOrb);
+  }
+
+  // ------------------------------------------------------------------
+  // Wiring
+  // ------------------------------------------------------------------
+  function toggleMic() {
+    if (!SR) { addLog('error', 'Speech recognition is not supported here. Use Chrome or Edge.'); return; }
+    wantListening = !wantListening;
+    el.micBtn.classList.toggle('on', wantListening);
+    if (wantListening) {
+      resume();
+    } else {
+      stopRec();
+      if (!busy && !speaking) setState('idle');
+    }
+  }
+
+  async function boot() {
+    el.boot.style.display = 'none';
+    active = true;
+    await loadStatus();
+    if (SR) {
+      wantListening = true;
+      el.micBtn.classList.add('on');
+      resume();
+      const wake = el.wakeToggle.checked;
+      await say('Systems online. ' + (wake ? 'Say my name when you need me.' : 'I am listening.'));
+    } else {
+      addLog('error', 'Speech recognition is not supported in this browser. Use Chrome or Edge, or type commands below.');
+      setState('idle');
+    }
+    setInterval(pollEvents, 3000);
+    loadWeather(false);
+    setInterval(() => loadWeather(false), 60000);
+    loadLights();
+    setInterval(loadLights, 30000);
+  }
+
+  function submitText() {
+    const text = el.textInput.value.trim();
+    if (!text) return;
+    el.textInput.value = '';
+    ask(text);
+  }
+
+  el.bootBtn.addEventListener('click', boot);
+  el.camBtn.addEventListener('click', toggleCamera);
+  el.wxRefresh.addEventListener('click', () => loadWeather(true));
+  el.lightsAllOn.addEventListener('click', () => lightsControl({ target: 'all', action: 'on' }));
+  el.lightsAllOff.addEventListener('click', () => lightsControl({ target: 'all', action: 'off' }));
+  el.micBtn.addEventListener('click', toggleMic);
+  el.sendBtn.addEventListener('click', submitText);
+  el.textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitText(); });
+  el.resetBtn.addEventListener('click', async () => {
+    try { await fetch('/api/reset', { method: 'POST' }); } catch (e) { /* ignore */ }
+    el.log.innerHTML = '';
+    el.subtitle.textContent = '';
+    addLog('system', 'Conversation memory cleared.');
+  });
+  [el.lang, el.voice, el.rate, el.wakeToggle, el.alwaysSee, el.proactive, el.mute, el.wxAlerts, el.announce].forEach((n) => {
+    n.addEventListener('change', saveSettings);
+  });
+  el.lang.addEventListener('change', () => {
+    if (wantListening && !busy && !speaking) { stopRec(); startRec(); }
+  });
+
+  window.addEventListener('resize', resizeOrb);
+  window.addEventListener('beforeunload', () => { try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } });
+
+  loadSettings();
+  if ('speechSynthesis' in window) {
+    loadVoices();
+    speechSynthesis.onvoiceschanged = loadVoices;
+  }
+  resizeOrb();
+  setState('idle');
+  drawOrb();
+})();
+</script>
+</body>
+</html>

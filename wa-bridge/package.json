@@ -1,0 +1,19 @@
+{
+  "name": "jarvis-wa-bridge",
+  "version": "1.0.0",
+  "description": "WhatsApp bridge for J.A.R.V.I.S. using whatsapp-web.js",
+  "main": "bridge.js",
+  "private": true,
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.9",
+    "express": "latest",
+    "qrcode-terminal": "latest",
+    "whatsapp-web.js": "github:wwebjs/whatsapp-web.js"
+  }
+}
