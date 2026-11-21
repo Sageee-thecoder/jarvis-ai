@@ -29,6 +29,7 @@ const JARVIS_URL = process.env.JARVIS_URL || 'http://127.0.0.1:5000';
 const WA_MODE = (process.env.WA_MODE || 'self').toLowerCase() === 'assistant' ? 'assistant' : 'self';
 const OWNER_NUMBER = (process.env.OWNER_WHATSAPP || '').replace(/\D/g, '');
 const ANNOUNCE_GROUPS = (process.env.WA_ANNOUNCE_GROUPS || 'false').toLowerCase() === 'true';
+const WA_DEBUG = (process.env.WA_DEBUG || 'false').toLowerCase() === 'true';
 const BOT_PREFIX = '\u{1F916} '; // robot emoji marks messages written by Jarvis
 
 if (!BRIDGE_TOKEN) {
@@ -44,9 +45,53 @@ let ready = false;
 let lastQr = null;
 let selfWid = null;  // your own WhatsApp id (self mode) or the Jarvis account id (assistant mode)
 let ownerWid = null; // where Jarvis sends messages to you
+let selfIds = new Set(); // every representation of this account (phone and LID), for self-chat detection
+
+const STATS = { startedAt: Date.now(), lastInbound: null, lastReplyAt: null, lastError: null };
+
+let WWEB_VERSION = 'unknown';
+try {
+  WWEB_VERSION = require('whatsapp-web.js/package.json').version;
+} catch (err) {
+  /* version label is optional */
+}
+
+// WhatsApp increasingly addresses users by LID instead of phone number, and JIDs can carry
+// a :device suffix. Normalise both so comparisons against our own ids stay reliable.
+function normJid(jid) {
+  return String(jid || '').replace(/:\d+(?=@)/, '');
+}
+
+function rememberSelf(jid) {
+  const clean = normJid(jid);
+  if (clean) selfIds.add(clean);
+}
+
+// Resolve an unknown id to its LID/phone pair and check whether it is this same account.
+// Used only for likely commands, so ordinary outgoing messages stay cheap.
+async function resolvesToSelf(jid) {
+  try {
+    const pairs = await client.getContactLidAndPhone([jid]);
+    for (const pair of pairs || []) {
+      if (!pair) continue;
+      const lid = normJid(pair.lid);
+      const pn = normJid(pair.pn);
+      if ((lid && selfIds.has(lid)) || (pn && selfIds.has(pn))) {
+        rememberSelf(lid);
+        rememberSelf(pn);
+        return true;
+      }
+    }
+  } catch (err) {
+    /* treat as not self */
+  }
+  return false;
+}
 
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: path.join(__dirname, '.wwebjs_auth') }),
+  // Stale cached web build never boots (auth timeout); always load current web.whatsapp.com
+  webVersionCache: { type: 'none' },
   puppeteer: {
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
@@ -133,6 +178,19 @@ client.on('ready', async () => {
   } catch (err) {
     selfWid = null;
   }
+  selfIds = new Set();
+  rememberSelf(selfWid);
+  if (WA_MODE === 'self' && selfWid) {
+    try {
+      const pairs = await client.getContactLidAndPhone([selfWid]);
+      for (const pair of pairs || []) {
+        rememberSelf(pair.lid);
+        rememberSelf(pair.pn);
+      }
+    } catch (err) {
+      console.warn('Could not resolve the LID for this account:', err.message);
+    }
+  }
   try {
     if (WA_MODE === 'self') {
       ownerWid = selfWid;
@@ -155,24 +213,73 @@ client.on('disconnected', (reason) => {
   ready = false;
   ownerWid = null;
   setTimeout(() => {
-    client.initialize().catch((err) => console.error('Re-initialize failed:', err.message));
+    client.initialize().catch((err) => console.error('Re-initialize failed:', (err && err.message) || String(err)));
   }, 5000);
 });
 
-// Self mode: commands you type to yourself, e.g. "Jarvis, what's on my calendar?"
+// Self mode: talk to Jarvis in your "Message yourself" chat.
+// Start with "Jarvis, ..." (or "Hey Jarvis ..."), or simply reply to any robot-prefixed message.
 client.on('message_create', async (msg) => {
   if (WA_MODE !== 'self') return;
   try {
+    if (WA_DEBUG) {
+      console.log('message_create:', msg.from, '->', msg.to, '| fromMe:', msg.fromMe, '|', previewOf(msg, 70));
+    }
     if (!msg.fromMe) return;
-    const inSelfChat = msg.to === selfWid || msg.from === msg.to;
-    if (!inSelfChat) return;
+    const to = normJid(msg.to);
+    const cheapSelf = selfIds.has(to) || to === normJid(msg.from);
     const body = String(msg.body || '').trim();
     if (!body || body.startsWith(BOT_PREFIX.trim())) return; // ignore Jarvis's own messages
-    const match = body.match(/^jarvis\b[\s,:;.!-]*([\s\S]*)$/i);
-    if (!match || !match[1].trim()) return;
-    const reply = await askJarvis(match[1].trim());
-    await client.sendMessage(selfWid, BOT_PREFIX + reply);
+
+    let replyToJarvis = false;
+    if (msg.hasQuotedMsg) {
+      try {
+        const quoted = await msg.getQuotedMessage();
+        replyToJarvis = !!(quoted && quoted.fromMe && String(quoted.body || '').startsWith(BOT_PREFIX));
+      } catch (err) {
+        /* the quoted message can be unavailable */
+      }
+    }
+
+    const match = body.match(/^(?:hey\s+)?jarvis\b[\s,:;.!?-]*([\s\S]*)$/i);
+    let command = match ? match[1].trim() : '';
+    if (!command && replyToJarvis) command = body;
+
+    if (!command) {
+      if (match && cheapSelf) await msg.reply(BOT_PREFIX + 'Yes?');
+      return; // an ordinary note written to yourself
+    }
+
+    if (!cheapSelf) {
+      const isSelf = await resolvesToSelf(to);
+      if (WA_DEBUG) console.log('Self-chat resolve:', to, '->', isSelf ? 'this account' : 'someone else');
+      if (!isSelf) return;
+    }
+
+    STATS.lastInbound = { at: Date.now(), kind: 'self-chat', chars: command.length, replyToJarvis };
+    console.log('Self-chat command' + (replyToJarvis ? ' (reply)' : '') + ': ' + previewOf({ body: command }, 90));
+
+    let chat = null;
+    try {
+      chat = await msg.getChat();
+      await chat.sendStateTyping();
+    } catch (err) {
+      /* typing indicator is best effort */
+    }
+    const reply = await askJarvis(command);
+    try {
+      if (chat) await chat.clearState();
+    } catch (err) {
+      /* ignore */
+    }
+    try {
+      await msg.reply(BOT_PREFIX + reply);
+    } catch (err) {
+      await client.sendMessage(msg.to || selfWid, BOT_PREFIX + reply);
+    }
+    STATS.lastReplyAt = Date.now();
   } catch (err) {
+    STATS.lastError = err.message;
     console.error('Self-chat command failed:', err.message);
   }
 });
@@ -190,7 +297,13 @@ client.on('message', async (msg) => {
         await msg.reply('I can only read text messages for now.');
         return;
       }
-      await msg.reply(await askJarvis(msg.body));
+      STATS.lastInbound = { at: Date.now(), kind: 'assistant', chars: String(msg.body).length };
+      const chat = await msg.getChat();
+      try { await chat.sendStateTyping(); } catch (err) { /* best effort */ }
+      const reply = await askJarvis(msg.body);
+      try { await chat.clearState(); } catch (err) { /* ignore */ }
+      STATS.lastReplyAt = Date.now();
+      await msg.reply(reply);
       return;
     }
 
@@ -220,6 +333,23 @@ app.use((req, res, next) => {
 
 app.get('/status', (req, res) => {
   res.json({ ready: ready && !!ownerWid, hasQr: !!lastQr, mode: WA_MODE });
+});
+
+// Read-only troubleshooting view: identities, readiness and the last inbound/reply.
+app.get('/diagnostics', (req, res) => {
+  res.json({
+    service: 'jarvis-wa-bridge',
+    whatsappWeb: WWEB_VERSION,
+    node: process.version,
+    mode: WA_MODE,
+    ready: ready && !!ownerWid,
+    hasQr: !!lastQr,
+    selfWid,
+    selfIds: Array.from(selfIds),
+    ownerWid,
+    botPrefix: BOT_PREFIX.trim(),
+    stats: STATS,
+  });
 });
 
 app.post('/send', async (req, res) => {
@@ -300,7 +430,7 @@ const server = app.listen(BRIDGE_PORT, '127.0.0.1', () => {
   console.log('Bridge API listening on http://127.0.0.1:' + BRIDGE_PORT + ' (mode: ' + WA_MODE + ')');
   // Only start WhatsApp once the API port is really ours.
   client.initialize().catch((err) => {
-    console.error('WhatsApp client failed to start:', err.message);
+    console.error('WhatsApp client failed to start:', (err && err.message) || String(err));
   });
 });
 

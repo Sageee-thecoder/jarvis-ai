@@ -1,133 +1,131 @@
-# J.A.R.V.I.S. - local real-time assistant (Gemini + WhatsApp bridge)
+# J.A.R.V.I.S.
 
-Hears you (mic), sees you (webcam), talks back, emails you from its own Gmail,
-and messages you on WhatsApp. You can also text it on WhatsApp and it answers.
+A personal, real-time AI assistant that lives across a PC, a phone, and a real phone line.
 
-## Fill in .env first
+J.A.R.V.I.S. is a local-first project: a Flask server on your machine does the thinking and the actions, a browser HUD gives it a voice and a face, an Android app lets it take calls, and a LiveKit agent answers inbound SIP calls. It is built for one user (the owner), not as a multi-tenant product.
 
-Copy `.env.example` to `.env` (`cp .env.example .env`) and fill in your credentials:
+## What it can do
 
-- `GEMINI_API_KEY`   your Google Gemini API key
-- `SMTP_USER`        Jarvis's dedicated Gmail address
-- `SMTP_PASS`        must be a Gmail **App Password** (see below), not the normal password
-- `OWNER_EMAIL`      your own inbox (Jarvis emails only this address)
-- `OWNER_WHATSAPP`   your own number, digits only with country code, e.g. 905551234567
-- `BRIDGE_TOKEN`     a random secret string to secure the WhatsApp bridge
+- **Talk** — speech-to-speech with Gemini Live, a wake phrase, barge-in, and streaming replies.
+- **See** — webcam snapshots and presence detection.
+- **Act** — WiZ lights, a Samsung TV, Spotify, a thermal receipt printer, a coffee/tea machine, and PC screen/mouse/keyboard control.
+- **Know** — live weather, Google Calendar, a school timetable, morning briefings, and autonomous reminders.
+- **Communicate** — send email from its own Gmail, read the owner's inbox read-only over IMAP, send and read WhatsApp through a `whatsapp-web.js` bridge, and send Telegram alerts.
+- **Answer the phone** — a LiveKit SIP number rings into a Gemini Live voice agent that can run the same tools.
+- **Go mobile** — a Kotlin/Compose Android app pairs over the LAN with `PHONE_TOKEN` and shows incoming calls full-screen.
+- **Wear the shell** — a Chrome app-mode desktop launcher starts the server and opens the HUD in a frameless app window, so the Web Speech API behaves exactly as it does in Chrome.
 
-## Run (two terminals)
+## Architecture
 
-Terminal 1 - the brain:
+```text
+Chrome HUD (static/index.html)
+        |  HTTP + JSON (127.0.0.1:5000)
+        v
+Flask server (server.py) -----> Gemini Live / Gemini API
+        |
+        +--> lights.py, tv.py, spotify.py, printer.py, brew.py, desk.py
+        +--> gcal.py, school.py, inbox.py, live_bridge.py
+        +--> WhatsApp bridge (wa-bridge/bridge.js, Node)
+        +--> Telegram
+        ^
+        |  LAN + PHONE_TOKEN
+Android app (android/)
 
-    python -m venv .venv
-    .venv\Scripts\activate            (Windows)   |   source .venv/bin/activate  (macOS/Linux)
-    pip install -r requirements.txt
-    python server.py
+LiveKit SIP call ---> livekit_agent.py ---> server tools
+```
 
-Terminal 2 - the WhatsApp bridge (Node 18+):
+## Quick start
 
-    cd wa-bridge
-    npm install
-    npm start
+Requirements: Python 3.10+, Node 18+ for the WhatsApp bridge, and Chrome or Edge for the HUD. The Android app and LiveKit phone line are optional.
 
-A QR code appears in terminal 2. On the phone whose WhatsApp Jarvis should use:
-WhatsApp > Settings > Linked devices > Link a device, and scan it. The session is saved in
-`wa-bridge/.wwebjs_auth`, so you only scan once.
+```bash
+git clone https://github.com/Sageee-thecoder/jarvis-ai.git
+cd jarvis-ai
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS / Linux
+pip install -r requirements.txt
+copy .env.example .env        # or: cp .env.example .env
+python server.py
+```
 
-Then open http://127.0.0.1:5000 in Chrome or Edge and click Initialize.
+Open <http://127.0.0.1:5000> in Chrome or Edge and click **Initialize**. The HUD asks for microphone (and optionally camera) access.
 
-## Speed
+Optional WhatsApp bridge:
 
-- Replies stream: Jarvis starts speaking the first sentence while the rest is still being written.
-- `JARVIS_THINKING=minimal` in `.env` turns Gemini's reasoning down to the fastest level. Raise it to
-  `low` or `medium` if you want deeper answers at the cost of speed.
-- Local browser voices start instantly; network voices (names starting with "Google") add a delay.
-  Pick a local voice in the Voice dropdown if replies feel laggy.
-- The startup self-test prints the AI round-trip time in the transcript.
+```bash
+cd wa-bridge
+npm install
+npm start
+```
 
-## Weather (OpenWeather)
+Scan the QR code with the WhatsApp account the assistant should use. The session is stored in `wa-bridge/.wwebjs_auth` (gitignored).
 
-- Set `WEATHER_CITY` in `.env` (format `City,CountryCode`, e.g. `Istanbul,TR`).
-- The server refreshes weather every `WEATHER_REFRESH_MIN` minutes (default 10, about 290 calls a day,
-  inside the free limit) and shows it in the HUD panel.
-- Jarvis already knows the live weather, so "do I need a jacket?" needs no extra lookup.
-  "What's the weather in Izmir?" fetches that city on demand.
-- Spoken alerts (toggle: "Speak weather alerts"): precipitation starting or stopping, a temperature swing
-  of `WEATHER_TEMP_ALERT` degrees, strong wind, and rain likely within about 6 hours.
-- A brand-new OpenWeather key can take up to two hours to activate and returns 401 until then.
+Optional LiveKit phone line: fill `LIVEKIT_*` and `JARVIS_NUMBER` in `.env`, then run `python livekit_agent.py start`.
 
-## Smart lights (WiZ)
+Optional Android app: open `android/` in Android Studio, build it, and pair it with the PC address plus `PHONE_TOKEN`.
 
-Put your bulbs in `.env`, ideally as `Name=IP` pairs so you can say "turn off the bedroom":
+## Configuration
 
-    WIZ_LIGHTS=Living Room=192.168.1.20, Bedroom=192.168.1.21, Desk=192.168.1.22
+All configuration is read from `.env`; `.env.example` lists every supported key. The defaults bind the server to `127.0.0.1` and turn off desktop control and WhatsApp self-mode. Keep it that way unless you understand the exposure.
 
-- Several bulbs in one fixture are ONE light: join their IPs with `|`, for example
-  `WIZ_LIGHTS=Main Light=192.168.5.5|192.168.5.2|192.168.5.8|192.168.5.12`. They always switch together,
-  the HUD shows a single row, and if only some respond Jarvis tells you which bulb did not.
-  Animated scenes (Party, Fireplace and so on) run on each bulb separately, so they may not be perfectly in sync.
-- Give every bulb a fixed IP in your router (DHCP reservation), otherwise the addresses change.
-- The PC must be on the same network, and "Local communication" must be enabled in the WiZ app
-  (Settings > Security) if your bulbs ignore commands.
-- Jarvis can switch lights on, off or toggle, set brightness (10 to 100 percent, bulbs cannot dim lower),
-  colors by name or hex, white temperature (2200 to 6500 K) and WiZ scenes (Cozy, Relax, Focus, Party,
-  Candlelight, TV time, Night light and so on), report their status, and schedule changes ("turn the
-  bedroom off in 20 minutes"). A room word like "bedroom" controls every light whose name contains it.
-- The HUD has a Lights panel with on/off buttons and brightness sliders for each bulb.
+Notable groups:
 
-## Reading your own email and WhatsApp (read-only)
+- `GEMINI_*` — Gemini API key and model.
+- `SMTP_*`, `OWNER_EMAIL`, `IMAP_*` — send from the assistant's own mailbox and read the owner's inbox read-only.
+- `WIZ_LIGHTS`, `SAMSUNG_TV_*`, `MXW01_*`, `SPOTIFY_*` — smart-home and output devices.
+- `LIVEKIT_*`, `JARVIS_NUMBER`, `PHONE_TOKEN` — inbound phone line and LAN pairing.
+- `DESKTOP_CONTROL`, `DESKTOP_SCREENSHOTS` — local screen/mouse/keyboard tools.
+- `WA_MODE`, `WA_ANNOUNCE_GROUPS` — WhatsApp bridge behavior.
 
-- Email: fill in `IMAP_USER` and `IMAP_PASS` (for Gmail an App Password for YOUR inbox). Jarvis opens
-  it read-only: it never marks mail as read, deletes, moves or sends from it. "Anything new from my bank?",
-  "read me that email" and "what's unread?" work. New mail is announced (sender and subject).
-- WhatsApp (needs `WA_MODE=self`): "who messaged me?", "what did Ayse say?". Reading never marks chats
-  as read. New private messages are announced by sender only, never the content; groups and muted chats
-  stay silent unless `WA_ANNOUNCE_GROUPS=true`.
-- Talking to Jarvis on WhatsApp in self mode: open "Message yourself" and start with "Jarvis, ...".
-  Jarvis's replies there start with a robot emoji. Messages you send to yourself may not buzz your phone,
-  so use Telegram or email for urgent alerts.
-- Anything inside an email or message is treated as untrusted text: Jarvis reports it but is told never to
-  follow instructions found in it. Jarvis can only send to you, never to other people.
-- An app password gives full access to the mailbox, even though Jarvis only reads. Revoke it any time in
-  your Google account.
-- Announcements play on your PC speakers. Untick "Announce new mail & WhatsApp" if others can overhear.
+## School timetable
 
-## WhatsApp bridge troubleshooting
+`school.py` ships with a small sample timetable. For a real timetable, create `school.local.json` (gitignored) with the same shape:
 
-- The bridge listens on port 3917 (`BRIDGE_PORT` and `BRIDGE_URL` in `.env`, keep them in step). Open
-  http://127.0.0.1:3917 in a browser: seeing `{"service":"jarvis-wa-bridge","error":"Forbidden..."}` means
-  the bridge is alive. Any other page, such as "Upgrade Required", means another program owns that port.
-- If the bridge terminal prints `EADDRINUSE`, pick another free port in `.env` and restart both servers.
-- The HUD log now says why the bridge is unavailable: not running, wrong port, wrong token or waiting for the QR scan.
+```json
+{
+  "SCHOOL": "Example High School",
+  "CLASS_NAME": "9-A",
+  "ISSUED": "2026-09-01",
+  "PERIODS": [{"n": 1, "start": "09:00", "end": "09:40"}],
+  "WEEKDAYS": ["Monday"],
+  "DAYS": {"Monday": ["MAT"]},
+  "SUBJECTS": {"MAT": {"subject": "Mathematics", "teacher": "", "hours": 1}},
+  "GRID_INITIALS": {}
+}
+```
 
-## Things that will bite you
+Without the file the sample is used; with it, the server answers questions about the real timetable. The file is never committed.
 
-1. Gmail: normal passwords are rejected over SMTP. On your dedicated Jarvis Gmail account, enable
-   2-Step Verification, create an App Password, and put it in `SMTP_PASS`.
-2. Gemini AQ. keys: Google's newer key format. Some accounts get `401 ACCESS_TOKEN_TYPE_UNSUPPORTED`.
-   The HUD runs a self-test on startup and shows the exact error. Fix: `pip install -U google-genai`;
-   if it persists, create a standard key in Google Cloud Console (Credentials), restrict it to
-   the Generative Language API, and replace `GEMINI_API_KEY`.
-3. `whatsapp-web.js` is unofficial (it drives WhatsApp Web) and WhatsApp can ban accounts that use it.
-   In `WA_MODE=self` (needed to read YOUR chats) the bridge is linked to your real account, so that
-   risk applies to your own number. If you would rather not risk it, set `WA_MODE=assistant` and link a
-   spare number instead; Jarvis then cannot read your chats. Switching modes means deleting
-   `wa-bridge/.wwebjs_auth` and scanning the QR code again.
-4. Both servers bind to `127.0.0.1` and the bridge needs the `BRIDGE_TOKEN` secret. Keep it that way.
+## Security and privacy
 
-## Usage
+- **Local-first.** The server binds to `127.0.0.1` by default. The Android app is the only LAN client and must present `PHONE_TOKEN`.
+- **Secrets stay in `.env`.** API keys, OAuth tokens, and phone-line credentials are not in source. Never commit `.env`, `credentials.json`, `token.json`, or the `.*_token.json` files.
+- **Untrusted content.** Email, WhatsApp messages, web pages, and screen content are treated as data, not instructions. Prompt-injection text is reported, never executed.
+- **Read-only inbox.** IMAP access uses `BODY.PEEK` and never marks, moves, or deletes mail. Sending is limited to the owner's address.
+- **WhatsApp is unofficial.** `whatsapp-web.js` drives WhatsApp Web; linking a real account carries a ban risk. Use a spare account (`WA_MODE=assistant`) if that matters.
+- **Desktop control is opt-in.** `DESKTOP_CONTROL` and `DESKTOP_SCREENSHOTS` are off by default.
+- **Rotate anything that leaks.** If a key is pasted into a chat or a screenshot, revoke it and create a new one.
 
-- "Jarvis, can you see me? What am I holding?"
-- "Jarvis, email me a summary of this conversation."
-- "Jarvis, WhatsApp me in 20 minutes to call the client."
-- Text Jarvis on WhatsApp from your own number and it replies there.
+## Project layout
 
-## Files
+- `server.py` — Flask app, Gemini tools, email/WhatsApp/Telegram, HTTP endpoints.
+- `static/index.html` — the HUD: wake phrase, speech in/out, camera, presence, panels.
+- `live_bridge.py` — real-time audio bridge for Gemini Live.
+- `livekit_agent.py`, `livekit_setup.py` — inbound phone line.
+- `autonomy.py` — scheduled and event-driven actions.
+- `school.py` — timetable loader with a generic sample; `school.local.json` is local-only.
+- `lights.py`, `tv.py`, `spotify.py`, `printer.py`, `brew.py`, `desk.py` — device tools.
+- `gcal.py`, `inbox.py` — Google Calendar and read-only inbox.
+- `wa-bridge/` — Node.js WhatsApp bridge.
+- `android/` — Kotlin/Compose phone app.
+- `desktop/` — Chrome app-mode launcher and icon.
+- `.env.example` — every supported setting with safe placeholders.
 
-- `lights.py`            WiZ light control (pywizlight)
-- `inbox.py`             read-only IMAP access to your own mailbox
-- `server.py`            Flask backend, Gemini function calling, email/WhatsApp/Telegram senders, reminders
-- `static/index.html`    HUD: wake word, speech in/out, camera, presence detection
-- `wa-bridge/bridge.js`  whatsapp-web.js bridge (send + receive)
-- `.env`                 your configuration (secrets, keep private)
+## Status
 
-> **Note:** Email sending is broken right now, it'll be fixed soon.
+Personal project, actively evolving. The PC HUD, voice loop, smart-home tools, and email/WhatsApp integrations are used daily. The phone line and Android app are newer and experimental. APIs and schemas may change.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

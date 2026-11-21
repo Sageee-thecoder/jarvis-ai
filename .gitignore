@@ -1,7 +1,46 @@
+# Secrets and local configuration
 .env
-.venv/
-__pycache__/
-*.pyc
-wa-bridge/node_modules/
+env
+credentials.json
+token.json
+.spotify_token.json
+.samsung_token.json
+README.local.md
+school.local.json
+*.bak
+
+# Local runtime state
+.brew_state.json
+.autonomy_state.json
+.autonomy_state.json.tmp
+logs/
+*.log
 wa-bridge/.wwebjs_auth/
 wa-bridge/.wwebjs_cache/
+
+# Dependencies and build output
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+tools/
+.gradle/
+.kotlin/
+build/
+android/.idea/
+android/local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+*.p12
+*.pfx
+google-services.json
+
+# Desktop scratch/debug files
+desktop/_*
+
+# OS junk
+.DS_Store
+Thumbs.db

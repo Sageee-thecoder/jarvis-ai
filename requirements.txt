@@ -1,5 +1,15 @@
 flask>=3.0
 google-genai>=2.20
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.1
 requests>=2.31
 python-dotenv>=1.0
 pywizlight>=0.5
+pyautogui>=0.9.54
+pygetwindow>=0.0.9
+websockets>=12
+samsungtvws>=2.7
+bleak>=0.22
+pillow>=10.0
+livekit-agents[google]>=1.8
+livekit-api>=1.2

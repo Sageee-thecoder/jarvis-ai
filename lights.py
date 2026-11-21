@@ -9,7 +9,7 @@ say "turn off the bedroom") or bare IP addresses:
 One light can be a fixture of several bulbs that always act together. Join their IPs with | (or repeat the
 name), and Jarvis treats them as a single light:
 
-    WIZ_LIGHTS=Main Light=192.168.5.5|192.168.5.2|192.168.5.8|192.168.5.12
+    WIZ_LIGHTS=Main Light=192.168.1.23|192.168.1.24|192.168.1.25|192.168.1.26
 
 pywizlight is asyncio based, so every public function here is synchronous and runs its own short event loop.
 """
